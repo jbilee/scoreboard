@@ -255,12 +255,16 @@ function renderResultsScreen() {
         appState.currentPage = 'score';
         renderApp();
     });
-    document.getElementById('startNewGameBtn').addEventListener('click', () => {
-        appState.teams = []; // 새 게임 시작 시 팀 초기화
-        appState.participantsInput = '';
-        appState.numTeams = 3;
-        appState.currentPage = 'main';
-        renderApp();
+
+    document.getElementById('startNewGameBtn').addEventListener('click', async () => {
+        const confirmed = await showConfirm("새 게임을 시작하시겠습니까? 팀 설정과 점수가 초기화됩니다.");
+        if (confirmed) {
+            appState.teams = []; // 새 게임 시작 시 팀 초기화
+            appState.participantsInput = '';
+            appState.numTeams = 3;
+            appState.currentPage = 'main';
+            renderApp();
+        }
     });
 }
 
