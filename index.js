@@ -93,6 +93,9 @@ function renderSetupScreen() {
                 <option value="5" ${appState.numTeams === 5 ? 'selected' : ''}>5팀</option>
             </select>
         </div>
+        <div id="teamNameInputsContainer" class="mb-6 text-left">
+            <!-- Team name input fields will be rendered here -->
+        </div>
         <button id="createTeamsBtn" class="btn btn-primary w-full mb-4">팀 생성 및 게임 시작</button>
         <button id="backToMainBtn" class="btn btn-secondary w-full">메인으로 돌아가기</button>
     `;
@@ -108,13 +111,38 @@ function renderSetupScreen() {
 
     numTeamsSelect.addEventListener('change', (e) => {
         appState.numTeams = parseInt(e.target.value);
+        renderTeamNameInputs(); // 팀 개수 변경 시 팀 이름 입력 필드 다시 렌더링
     });
+
+    renderTeamNameInputs(); // 초기 팀 이름 입력 필드 렌더링
 
     createTeamsBtn.addEventListener('click', createTeams);
     backToMainBtn.addEventListener('click', () => {
         appState.currentPage = 'main';
         renderApp();
     });
+}
+
+// 팀 이름 입력 필드를 렌더링하는 함수
+function renderTeamNameInputs() {
+    const container = document.getElementById('teamNameInputsContainer');
+    container.innerHTML = ''; // 기존 입력 필드 초기화
+
+    for (let i = 0; i < appState.numTeams; i++) {
+        // 기존 팀 이름이 있다면 가져오고, 없으면 기본 이름 사용
+        const defaultTeamName = `팀 ${String.fromCharCode(65 + i)}`;
+        const currentTeamName = appState.teams[i] ? appState.teams[i].name : defaultTeamName;
+
+        const inputHtml = `
+            <div class="mb-3">
+                <label for="teamName-${i}" class="block text-gray-700 text-sm font-bold mb-1">
+                    팀 ${String.fromCharCode(65 + i)} 이름
+                </label>
+                <input type="text" id="teamName-${i}" class="input-field" placeholder="예: ${defaultTeamName}" value="${currentTeamName}">
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', inputHtml);
+    }
 }
 
 // 점수 기록 화면 렌더링
@@ -257,15 +285,26 @@ async function createTeams() {
         return;
     }
 
+    // 팀 이름 입력 필드에서 사용자 정의 팀 이름 가져오기
+    const customTeamNames = [];
+    for (let i = 0; i < appState.numTeams; i++) {
+        const inputElement = document.getElementById(`teamName-${i}`);
+        let name = inputElement ? inputElement.value.trim() : '';
+        if (!name) {
+            name = `팀 ${String.fromCharCode(65 + i)}`; // 입력되지 않았으면 기본 이름 사용
+        }
+        customTeamNames.push(name);
+    }
+
     // 참가자 목록 섞기 (Fisher-Yates shuffle)
     for (let i = allParticipants.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [allParticipants[i], allParticipants[j]] = [allParticipants[j], allParticipants[i]];
     }
 
-    // 팀 초기화
+    // 팀 초기화 (사용자 정의 이름 사용)
     appState.teams = Array.from({ length: appState.numTeams }, (_, i) => ({
-        name: `팀 ${String.fromCharCode(65 + i)}`, // 팀 A, 팀 B, ...
+        name: customTeamNames[i],
         score: 0,
         members: []
     }));
