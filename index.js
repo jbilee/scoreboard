@@ -109,7 +109,7 @@ function renderMainScreen() {
         <div class="space-y-4">
             <button id="registerParticipantsBtn" class="btn btn-primary w-full">참가자 등록</button>
             <button id="assignTeamsBtn" class="btn btn-primary w-full">팀 설정</button>
-            <button id="startGameBtn" class="btn btn-primary w-full">게임 시작</button>
+            <button id="startGameBtn" class="btn btn-primary btn-start-game w-full">게임 시작</button>
         </div>
         <!-- userId display removed as it's not relevant for localStorage -->
     `;
@@ -171,6 +171,33 @@ function renderSetupScreen() {
         return;
     }
 
+    // 현재 설정된 팀 목록을 생성
+    let currentTeamsDisplayHtml = '';
+    if (appState.teams.length > 0) {
+        currentTeamsDisplayHtml += `
+            <div class="mb-6 text-left p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <h3 class="text-lg font-bold text-blue-800 mb-3">현재 설정된 팀</h3>
+                <div class="space-y-2">
+        `;
+        appState.teams.forEach(team => {
+            currentTeamsDisplayHtml += `
+                    <div class="text-sm text-blue-700">
+                        <span class="font-semibold">${team.name}:</span> ${team.members.length > 0 ? team.members.join(', ') : '멤버 없음'}
+                    </div>
+            `;
+        });
+        currentTeamsDisplayHtml += `
+                </div>
+            </div>
+        `;
+    } else {
+        currentTeamsDisplayHtml = `
+            <div class="mb-6 text-left p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-600 text-sm">
+                아직 배정된 팀이 없습니다. 아래에서 팀을 설정해주세요.
+            </div>
+        `;
+    }
+
     appDiv.innerHTML = `
         <h2 class="text-2xl font-bold text-gray-800 mb-6">팀 설정</h2>
         <div class="mb-4 text-left">
@@ -178,6 +205,7 @@ function renderSetupScreen() {
                 등록된 참가자: <span class="font-normal text-gray-600">${appState.registeredParticipants.join(', ') || '없음'}</span>
             </label>
         </div>
+        ${currentTeamsDisplayHtml} <!-- 현재 설정된 팀 목록 삽입 -->
         <div class="mb-6 text-left">
             <label class="block text-gray-700 text-sm font-bold mb-2">
                 팀 배정 방식 선택:
@@ -196,7 +224,7 @@ function renderSetupScreen() {
         <div id="assignmentMethodOptionsContainer">
             <!-- Dynamic content based on assignment method -->
         </div>
-        <button id="createTeamsBtn" class="btn btn-primary w-full mb-4">팀 설정 및 게임 시작</button>
+        <button id="createTeamsBtn" class="btn btn-primary w-full mb-4">설정 저장</button>
         <button id="backToMainBtn" class="btn btn-secondary w-full">메인으로 돌아가기</button>
     `;
 
@@ -598,11 +626,14 @@ async function createTeams() {
     }
 
     // 팀 초기화 (사용자 정의 이름 사용)
+    // 기존 팀의 점수와 멤버를 초기화하지 않고, 새로운 팀 이름만 반영
+    const currentTeamsCopy = JSON.parse(JSON.stringify(appState.teams)); // Deep copy to preserve members for manual assignment
     appState.teams = Array.from({ length: appState.numTeams }, (_, i) => ({
         name: customTeamNames[i],
-        score: 0,
-        members: []
+        score: currentTeamsCopy[i] ? currentTeamsCopy[i].score : 0, // Preserve score if team existed
+        members: currentTeamsCopy[i] && appState.assignmentMethod === 'manual' ? currentTeamsCopy[i].members : [] // Preserve members only if manual and team existed
     }));
+
 
     if (appState.assignmentMethod === 'random') {
         // 무작위 배정 로직
@@ -614,6 +645,7 @@ async function createTeams() {
         }
 
         // 참가자를 각 팀에 순서대로 배정
+        appState.teams.forEach(team => team.members = []); // Clear members before random assignment
         shuffledParticipants.forEach((participant, index) => {
             const teamIndex = index % appState.numTeams;
             appState.teams[teamIndex].members.push(participant);
@@ -630,6 +662,9 @@ async function createTeams() {
                 const membersInZone = Array.from(teamDropZone.children)
                                             .filter(el => el.classList.contains('participant-draggable'))
                                             .map(el => el.textContent.trim());
+
+                // Clear existing members in appState.teams[i].members before adding new ones
+                appState.teams[i].members = [];
 
                 for (const member of membersInZone) {
                     if (!allParticipants.includes(member)) {
@@ -649,15 +684,14 @@ async function createTeams() {
             }
         }
 
-        // 미배정 풀에 남은 참가자 확인
-        const unassignedPool = document.getElementById('unassignedPool');
-        if (unassignedPool) {
-            Array.from(unassignedPool.children)
-                    .filter(el => el.classList.contains('participant-draggable'))
-                    .map(el => el.textContent.trim())
-                    .forEach(unassignedMember => unassignedParticipants.add(unassignedMember));
-        }
-
+        // 미배정 풀에 남은 참가자 확인 (드래그 앤 드롭 UI에서 직접 가져옴)
+        const unassignedPoolElements = document.querySelectorAll('#unassignedPool .participant-draggable');
+        Array.from(unassignedPoolElements).forEach(el => {
+            const memberName = el.textContent.trim();
+            if (allParticipants.includes(memberName) && !assignedParticipants.has(memberName)) {
+                unassignedParticipants.add(memberName);
+            }
+        });
 
         if (unassignedParticipants.size > 0) {
             const unassignedList = Array.from(unassignedParticipants).join(', ');
@@ -669,7 +703,8 @@ async function createTeams() {
         }
     }
 
-    appState.currentPage = 'score'; // 팀 생성 후 점수 기록 화면으로 전환
+    showAlert("팀 설정이 저장되었습니다."); // 팀 설정 저장 완료 알림
+    appState.currentPage = 'main'; // 팀 설정 후 메인 화면으로 전환
     renderApp();
 }
 
