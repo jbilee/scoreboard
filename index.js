@@ -504,7 +504,6 @@ function renderScoreScreen() {
             ${teamsHtml}
         </div>
         <button id="showResultsBtn" class="btn btn-primary w-full mb-4">결과 확인</button>
-        <button id="resetGameBtn" class="btn btn-secondary w-full">게임 초기화</button>
     `;
 
     document.querySelectorAll('.score-btn').forEach(button => {
@@ -518,19 +517,6 @@ function renderScoreScreen() {
     document.getElementById('showResultsBtn').addEventListener('click', () => {
         appState.currentPage = 'results';
         renderApp();
-    });
-
-    document.getElementById('resetGameBtn').addEventListener('click', async () => {
-        // 게임 초기화 확인 (커스텀 confirm 사용)
-        const confirmed = await showConfirm("정말로 게임을 초기화하시겠습니까? 현재 점수가 모두 사라집니다.");
-        if (confirmed) {
-            appState.teams = [];
-            appState.numTeams = 2;
-            appState.currentPage = 'main';
-            renderApp();
-            // localStorage에서도 참가자 명단 삭제
-            // localStorage.removeItem('recreationParticipants');
-        }
     });
 }
 
