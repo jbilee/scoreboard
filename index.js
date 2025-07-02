@@ -6,6 +6,20 @@ let appState = {
     numTeams: 2,
     teams: [], // [{ name: '팀 A', score: 0, members: ['홍길동', '김철수'] }]
     assignmentMethod: 'random', // New: 'random' or 'manual'
+    games: [], // Stores created games: [{ id: 'uuid', category: 'oxQuiz', name: '퀴즈1', questions: [{q: '...', a: 'O'}, ...] }, { id: 'uuid', category: 'speedGame', name: '스피드퀴즈1', words: ['단어1', '단어2'] }]
+    currentCategoryForGameCreation: 'oxQuiz', // 'oxQuiz' or 'speedGame'
+    editingGame: null, // Stores the game object being edited (null for new game)
+    newOxQuizQuestionInput: '', // Temporary storage for new question text
+    newOxQuizAnswerInput: 'O', // Temporary storage for new answer (O/X)
+    newSpeedGameWordInput: '', // Temporary storage for new speed game word text
+    selectedGameToPlayId: null, // ID of the game chosen to play on the score screen
+    currentOxQuizQuestionIndex: 0, // Current question index during OX Quiz play
+    currentSpeedGameWordIndex: 0, // Current word index during Speed Game play
+    oxQuizAnswerResult: null, // 'correct', 'incorrect', or null
+    currentPlayingTeamId: null, // ID of the team currently playing a game
+    currentOxQuizSessionScore: 0, // Score accumulated in the current OX Quiz session
+    currentSpeedGameSessionScore: 0, // Score accumulated in the current Speed Game session
+    currentPlayingGameCategory: null, // Category of the game currently being played
 };
 
 // DOM 요소 가져오기
@@ -13,6 +27,14 @@ const appDiv = document.getElementById('app');
 const customModal = document.getElementById('customModal');
 const modalMessage = document.getElementById('modalMessage');
 const modalButtons = document.getElementById('modalButtons');
+
+// UUID 생성 함수 (간단한 버전)
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
 
 // 참가자 명단 저장 (localStorage 사용)
 function saveParticipantsToLocalStorage() {
@@ -51,6 +73,39 @@ function loadParticipantsFromLocalStorage() {
     } catch (e) {
         console.error("참가자 명단 불러오기 중 오류 발생:", e);
         showAlert("참가자 명단 불러오기 중 오류가 발생했습니다.");
+    }
+}
+
+// 게임 목록 저장 (localStorage 사용)
+function saveGamesToLocalStorage() {
+    try {
+        localStorage.setItem('recreationGames', JSON.stringify(appState.games));
+        console.log("게임 목록이 성공적으로 저장되었습니다.");
+    } catch (e) {
+        console.error("게임 목록 저장 중 오류 발생:", e);
+        showAlert("게임 목록 저장 중 오류가 발생했습니다.");
+    }
+}
+
+// 게임 목록 불러오기 (localStorage 사용)
+function loadGamesFromLocalStorage() {
+    try {
+        const savedData = localStorage.getItem('recreationGames');
+        if (savedData) {
+            const data = JSON.parse(savedData);
+            if (Array.isArray(data)) {
+                appState.games = data;
+                console.log("게임 목록이 성공적으로 불러와졌습니다:", appState.games);
+            } else {
+                appState.games = [];
+            }
+        } else {
+            console.log("저장된 게임 목록이 없습니다.");
+            appState.games = [];
+        }
+    } catch (e) {
+        console.error("게임 목록 불러오기 중 오류 발생:", e);
+        showAlert("게임 목록 불러오기 중 오류가 발생했습니다.");
     }
 }
 
@@ -109,6 +164,7 @@ function renderMainScreen() {
         <div class="space-y-4">
             <button id="registerParticipantsBtn" class="btn btn-primary w-full">참가자 등록</button>
             <button id="assignTeamsBtn" class="btn btn-primary w-full">팀 설정</button>
+            <button id="gameCreationPageBtn" class="btn btn-primary w-full">게임 만들기</button>
             <button id="startGameBtn" class="btn btn-primary btn-start-game w-full">게임 시작</button>
         </div>
         <!-- userId display removed as it's not relevant for localStorage -->
@@ -123,6 +179,15 @@ function renderMainScreen() {
             return;
         }
         appState.currentPage = 'setup';
+        renderApp();
+    });
+    document.getElementById('gameCreationPageBtn').addEventListener('click', () => {
+        appState.currentPage = 'gameCreationPage';
+        // Reset editing state when entering game creation page
+        appState.editingGame = null;
+        appState.newOxQuizQuestionInput = '';
+        appState.newOxQuizAnswerInput = 'O';
+        appState.newSpeedGameWordInput = '';
         renderApp();
     });
     document.getElementById('startGameBtn').addEventListener('click', () => {
@@ -475,6 +540,404 @@ function drop(e) {
     }
 }
 
+// 게임 만들기 페이지 렌더링
+function renderGameCreationPage() {
+    appDiv.innerHTML = `
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">게임 만들기</h2>
+        <div class="game-category-tabs">
+            <button id="oxQuizCategoryTab" class="game-category-tab ${appState.currentCategoryForGameCreation === 'oxQuiz' ? 'active' : ''}">OX 퀴즈</button>
+            <button id="speedGameCategoryTab" class="game-category-tab ${appState.currentCategoryForGameCreation === 'speedGame' ? 'active' : ''}">스피드게임</button>
+        </div>
+        <div id="gameCategoryContent">
+            <!-- Dynamic content based on currentCategoryForGameCreation -->
+        </div>
+
+        <button id="backToMainBtn" class="btn btn-secondary w-full mt-8">메인으로 돌아가기</button>
+    `;
+
+    document.getElementById('oxQuizCategoryTab').addEventListener('click', () => {
+        appState.currentCategoryForGameCreation = 'oxQuiz';
+        renderGameCreationPage(); // Re-render game creation page to show OX Quiz
+    });
+    document.getElementById('speedGameCategoryTab').addEventListener('click', () => {
+        appState.currentCategoryForGameCreation = 'speedGame';
+        appState.editingGame = null; // Clear editing game when switching categories
+        appState.newSpeedGameWordInput = ''; // Clear temporary inputs
+        renderGameCreationPage(); // Re-render to update tab state visually
+    });
+
+    const gameCategoryContent = document.getElementById('gameCategoryContent');
+    if (appState.currentCategoryForGameCreation === 'oxQuiz') {
+        renderOxQuizCreationSection(gameCategoryContent);
+    } else if (appState.currentCategoryForGameCreation === 'speedGame') {
+        renderSpeedGameCreationSection(gameCategoryContent);
+    }
+
+    document.getElementById('backToMainBtn').addEventListener('click', () => {
+        appState.currentPage = 'main';
+        renderApp();
+    });
+}
+
+// OX 퀴즈 생성 섹션 렌더링
+function renderOxQuizCreationSection(container) {
+    let gameListHtml = '';
+    const oxQuizzes = appState.games.filter(game => game.category === 'oxQuiz');
+
+    if (oxQuizzes.length > 0) {
+        gameListHtml += `<h4 class="text-lg font-semibold text-gray-700 mb-2">만들어진 OX 퀴즈</h4>`;
+        oxQuizzes.forEach(game => {
+            gameListHtml += `
+                <div class="game-list-item">
+                    <span class="game-list-item-name">${game.name} (${game.questions.length} 문제)</span>
+                    <div class="game-list-item-actions">
+                        <button class="btn btn-secondary" onclick="editOxQuizGame('${game.id}')">수정</button>
+                        <button class="btn btn-secondary bg-red-100 text-red-700 hover:bg-red-200" onclick="deleteOxQuizGame('${game.id}')">삭제</button>
+                    </div>
+                </div>
+            `;
+        });
+        gameListHtml += `<div class="mb-6"></div>`; // Spacing
+    } else {
+        gameListHtml = `<p class="text-gray-600 mb-4">아직 만들어진 OX 퀴즈가 없습니다. 새로운 퀴즈를 만들어보세요!</p>`;
+    }
+
+    let editFormHtml = '';
+    if (appState.editingGame) {
+        editFormHtml = `
+            <div class="mt-6 border-t pt-6 border-gray-200 text-left">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">${appState.editingGame.id ? '퀴즈 수정' : '새 OX 퀴즈 만들기'}</h3>
+                <div class="mb-4">
+                    <label for="quizNameInput" class="block text-gray-700 text-sm font-bold mb-2">퀴즈 이름</label>
+                    <input type="text" id="quizNameInput" class="input-field" value="${appState.editingGame.name || ''}" placeholder="예: 상식 OX 퀴즈">
+                </div>
+
+                <h4 class="text-lg font-semibold text-gray-700 mb-2">질문 목록</h4>
+                <div id="oxQuizQuestionsList" class="mb-4">
+                    ${appState.editingGame.questions.map((q, index) => `
+                        <div class="question-item">
+                            <span class="question-item-text">${index + 1}. ${q.q}</span>
+                            <span class="question-item-answer">[${q.a}]</span>
+                            <div class="question-item-actions">
+                                <button class="btn btn-secondary" onclick="editOxQuizQuestion(${index})">수정</button>
+                                <button class="btn btn-secondary bg-red-100 text-red-700 hover:bg-red-200" onclick="deleteOxQuizQuestion(${index})">삭제</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                    ${appState.editingGame.questions.length === 0 ? '<p class="text-gray-500 text-sm">아직 질문이 없습니다. 아래에서 추가해주세요.</p>' : ''}
+                </div>
+
+                <h4 class="text-lg font-semibold text-gray-700 mb-2">새 질문 추가</h4>
+                <div class="mb-4">
+                    <label for="newOxQuizQuestionInput" class="block text-gray-700 text-sm font-bold mb-2">질문 내용</label>
+                    <textarea id="newOxQuizQuestionInput" class="input-field h-24 resize-y" placeholder="예: 서울은 대한민국의 수도이다.">${appState.newOxQuizQuestionInput}</textarea>
+                </div>
+                <div class="mb-4 text-left">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">정답</label>
+                    <div class="flex items-center space-x-4">
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="newOxQuizAnswer" value="O" class="form-radio text-indigo-600" ${appState.newOxQuizAnswerInput === 'O' ? 'checked' : ''}>
+                            <span class="ml-2 text-gray-700">O</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="newOxQuizAnswer" value="X" class="form-radio text-indigo-600" ${appState.newOxQuizAnswerInput === 'X' ? 'checked' : ''}>
+                            <span class="ml-2 text-gray-700">X</span>
+                        </label>
+                    </div>
+                </div>
+                <button id="addOxQuizQuestionBtn" class="btn btn-secondary w-full mb-4">질문 추가</button>
+                <button id="saveOxQuizGameBtn" class="btn btn-primary w-full">이 퀴즈 저장</button>
+            </div>
+        `;
+    }
+
+    container.innerHTML = `
+        <button id="newOxQuizGameBtn" class="btn btn-primary w-full mb-6">새 OX 퀴즈 만들기</button>
+        ${gameListHtml}
+        ${editFormHtml}
+    `;
+
+    // Event listeners for the form (if editing/creating)
+    if (appState.editingGame) {
+        document.getElementById('quizNameInput').addEventListener('input', (e) => {
+            appState.editingGame.name = e.target.value;
+        });
+        document.getElementById('newOxQuizQuestionInput').addEventListener('input', (e) => {
+            appState.newOxQuizQuestionInput = e.target.value;
+        });
+        document.querySelectorAll('input[name="newOxQuizAnswer"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                appState.newOxQuizAnswerInput = e.target.value;
+            });
+        });
+        document.getElementById('addOxQuizQuestionBtn').addEventListener('click', addOxQuizQuestion);
+        document.getElementById('saveOxQuizGameBtn').addEventListener('click', saveOxQuizGame);
+    }
+
+    document.getElementById('newOxQuizGameBtn').addEventListener('click', () => {
+        appState.editingGame = { id: null, category: 'oxQuiz', name: '', questions: [] }; // New empty game
+        appState.newOxQuizQuestionInput = '';
+        appState.newOxQuizAnswerInput = 'O';
+        renderOxQuizCreationSection(container);
+    });
+}
+
+// OX 퀴즈 질문 추가
+function addOxQuizQuestion() {
+    if (!appState.editingGame) return;
+
+    const questionText = appState.newOxQuizQuestionInput.trim();
+    const answer = appState.newOxQuizAnswerInput;
+
+    if (!questionText) {
+        showAlert("질문 내용을 입력해주세요.");
+        return;
+    }
+
+    // 수정 중인 질문이 있다면 업데이트
+    if (appState.editingQuestionIndex !== undefined && appState.editingQuestionIndex !== null) {
+        appState.editingGame.questions[appState.editingQuestionIndex] = { q: questionText, a: answer };
+        appState.editingQuestionIndex = null; // 수정 모드 해제
+    } else {
+        appState.editingGame.questions.push({ q: questionText, a: answer });
+    }
+
+    appState.newOxQuizQuestionInput = ''; // 입력 필드 초기화
+    appState.newOxQuizAnswerInput = 'O'; // 정답 선택 초기화
+    renderOxQuizCreationSection(document.getElementById('gameCategoryContent')); // Re-render to show updated list
+}
+
+// OX 퀴즈 질문 수정
+function editOxQuizQuestion(index) {
+    if (!appState.editingGame || !appState.editingGame.questions[index]) return;
+
+    const questionToEdit = appState.editingGame.questions[index];
+    appState.newOxQuizQuestionInput = questionToEdit.q;
+    appState.newOxQuizAnswerInput = questionToEdit.a;
+    appState.editingQuestionIndex = index; // 수정할 질문의 인덱스 저장
+
+    renderOxQuizCreationSection(document.getElementById('gameCategoryContent')); // Re-render to populate form
+}
+
+// OX 퀴즈 질문 삭제
+async function deleteOxQuizQuestion(index) {
+    if (!appState.editingGame || !appState.editingGame.questions[index]) return;
+
+    const confirmed = await showConfirm("정말로 이 질문을 삭제하시겠습니까?");
+    if (confirmed) {
+        appState.editingGame.questions.splice(index, 1);
+        showAlert("질문이 삭제되었습니다.");
+        renderOxQuizCreationSection(document.getElementById('gameCategoryContent'));
+    }
+}
+
+// OX 퀴즈 게임 저장
+async function saveOxQuizGame() {
+    if (!appState.editingGame) return;
+
+    const gameName = appState.editingGame.name.trim();
+    if (!gameName) {
+        showAlert("퀴즈 이름을 입력해주세요.");
+        return;
+    }
+    if (appState.editingGame.questions.length === 0) {
+        showAlert("최소 하나 이상의 질문을 추가해주세요.");
+        return;
+    }
+
+    // Check for duplicate game names (excluding itself if editing)
+    const isDuplicateName = appState.games.some(game =>
+        game.name === gameName && game.id !== appState.editingGame.id
+    );
+    if (isDuplicateName) {
+        showAlert("이미 같은 이름의 퀴즈가 존재합니다. 다른 이름을 사용해주세요.");
+        return;
+    }
+
+    if (appState.editingGame.id) {
+        // Update existing game
+        const index = appState.games.findIndex(game => game.id === appState.editingGame.id);
+        if (index !== -1) {
+            appState.games[index] = { ...appState.editingGame }; // Update with current editing state
+        }
+        showAlert("퀴즈가 성공적으로 수정되었습니다!");
+    } else {
+        // Add new game
+        appState.editingGame.id = generateUUID(); // Assign new ID
+        appState.games.push({ ...appState.editingGame });
+        showAlert("새 퀴즈가 성공적으로 추가되었습니다!");
+    }
+
+    saveGamesToLocalStorage(); // Save all games to localStorage
+    appState.editingGame = null; // Exit editing mode
+    appState.newOxQuizQuestionInput = '';
+    appState.newOxQuizAnswerInput = 'O';
+    renderGameCreationPage(); // Go back to game list on the game creation page
+}
+
+// OX 퀴즈 게임 수정 (기존 게임 로드)
+function editOxQuizGame(gameId) {
+    const gameToEdit = appState.games.find(game => game.id === gameId);
+    if (gameToEdit) {
+        appState.editingGame = JSON.parse(JSON.stringify(gameToEdit)); // Deep copy to avoid direct mutation
+        appState.newOxQuizQuestionInput = '';
+        appState.newOxQuizAnswerInput = 'O';
+        appState.currentCategoryForGameCreation = 'oxQuiz'; // Ensure we are on OX Quiz category
+        renderGameCreationPage(); // Re-render the game creation page to show the edit form
+    } else {
+        showAlert("해당 퀴즈를 찾을 수 없습니다.");
+    }
+}
+
+// OX 퀴즈 게임 삭제
+async function deleteOxQuizGame(gameId) {
+    const confirmed = await showConfirm("정말로 이 퀴즈를 삭제하시겠습니까? 모든 질문이 사라집니다.");
+    if (confirmed) {
+        appState.games = appState.games.filter(game => game.id !== gameId);
+        saveGamesToLocalStorage();
+        showAlert("퀴즈가 성공적으로 삭제되었습니다.");
+        renderGameCreationPage(); // Re-render to update list
+    }
+}
+
+// 스피드게임 생성 섹션 렌더링
+function renderSpeedGameCreationSection(container) {
+    let gameListHtml = '';
+    const speedGames = appState.games.filter(game => game.category === 'speedGame');
+
+    if (speedGames.length > 0) {
+        gameListHtml += `<h4 class="text-lg font-semibold text-gray-700 mb-2">만들어진 스피드게임</h4>`;
+        speedGames.forEach(game => {
+            gameListHtml += `
+                <div class="game-list-item">
+                    <span class="game-list-item-name">${game.name} (${game.words.length} 단어)</span>
+                    <div class="game-list-item-actions">
+                        <button class="btn btn-secondary" onclick="editSpeedGame('${game.id}')">수정</button>
+                        <button class="btn btn-secondary bg-red-100 text-red-700 hover:bg-red-200" onclick="deleteSpeedGame('${game.id}')">삭제</button>
+                    </div>
+                </div>
+            `;
+        });
+        gameListHtml += `<div class="mb-6"></div>`; // Spacing
+    } else {
+        gameListHtml = `<p class="text-gray-600 mb-4">아직 만들어진 스피드게임이 없습니다. 새로운 스피드게임을 만들어보세요!</p>`;
+    }
+
+    let editFormHtml = '';
+    if (appState.editingGame && appState.editingGame.category === 'speedGame') {
+        editFormHtml = `
+            <div class="mt-6 border-t pt-6 border-gray-200 text-left">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">${appState.editingGame.id ? '스피드게임 수정' : '새 스피드게임 만들기'}</h3>
+                <div class="mb-4">
+                    <label for="speedQuizNameInput" class="block text-gray-700 text-sm font-bold mb-2">퀴즈 이름</label>
+                    <input type="text" id="speedQuizNameInput" class="input-field" value="${appState.editingGame.name || ''}" placeholder="예: 몸으로 말해요">
+                </div>
+
+                <h4 class="text-lg font-semibold text-gray-700 mb-2">단어 목록 (한 줄에 하나씩)</h4>
+                <div class="mb-4">
+                    <textarea id="speedGameWordsInput" class="input-field h-32 resize-y" placeholder="예:&#10;바나나&#10;사과&#10;자동차">${appState.editingGame.words.join('\n')}</textarea>
+                </div>
+                <button id="saveSpeedGameBtn" class="btn btn-primary w-full">이 퀴즈 저장</button>
+            </div>
+        `;
+    }
+
+    container.innerHTML = `
+        <button id="newSpeedGameBtn" class="btn btn-primary w-full mb-6">새 스피드게임 만들기</button>
+        ${gameListHtml}
+        ${editFormHtml}
+    `;
+
+    // Event listeners for the form (if editing/creating)
+    if (appState.editingGame && appState.editingGame.category === 'speedGame') {
+        document.getElementById('speedQuizNameInput').addEventListener('input', (e) => {
+            appState.editingGame.name = e.target.value;
+        });
+        document.getElementById('speedGameWordsInput').addEventListener('input', (e) => {
+            // Temporarily store the raw input, actual parsing happens on save
+            appState.newSpeedGameWordInput = e.target.value;
+        });
+        document.getElementById('saveSpeedGameBtn').addEventListener('click', saveSpeedGame);
+    }
+
+    document.getElementById('newSpeedGameBtn').addEventListener('click', () => {
+        appState.editingGame = { id: null, category: 'speedGame', name: '', words: [] }; // New empty game
+        appState.newSpeedGameWordInput = ''; // Clear temporary input
+        renderSpeedGameCreationSection(container);
+    });
+}
+
+// 스피드게임 저장
+async function saveSpeedGame() {
+    if (!appState.editingGame || appState.editingGame.category !== 'speedGame') return;
+
+    const gameName = appState.editingGame.name.trim();
+    const words = appState.newSpeedGameWordInput.split('\n').map(word => word.trim()).filter(word => word !== '');
+
+    if (!gameName) {
+        showAlert("퀴즈 이름을 입력해주세요.");
+        return;
+    }
+    if (words.length === 0) {
+        showAlert("최소 하나 이상의 단어를 추가해주세요.");
+        return;
+    }
+
+    // Check for duplicate game names (excluding itself if editing)
+    const isDuplicateName = appState.games.some(game =>
+        game.category === 'speedGame' && game.name === gameName && game.id !== appState.editingGame.id
+    );
+    if (isDuplicateName) {
+        showAlert("이미 같은 이름의 퀴즈가 존재합니다. 다른 이름을 사용해주세요.");
+        return;
+    }
+
+    appState.editingGame.words = words; // Update words in the editing game object
+
+    if (appState.editingGame.id) {
+        // Update existing game
+        const index = appState.games.findIndex(game => game.id === appState.editingGame.id);
+        if (index !== -1) {
+            appState.games[index] = { ...appState.editingGame }; // Update with current editing state
+        }
+        showAlert("스피드게임이 성공적으로 수정되었습니다!");
+    } else {
+        // Add new game
+        appState.editingGame.id = generateUUID(); // Assign new ID
+        appState.games.push({ ...appState.editingGame });
+        showAlert("새 스피드게임이 성공적으로 추가되었습니다!");
+    }
+
+    saveGamesToLocalStorage(); // Save all games to localStorage
+    appState.editingGame = null; // Exit editing mode
+    appState.newSpeedGameWordInput = '';
+    renderGameCreationPage(); // Go back to game list on the game creation page
+}
+
+// 스피드게임 수정 (기존 게임 로드)
+function editSpeedGame(gameId) {
+    const gameToEdit = appState.games.find(game => game.id === gameId && game.category === 'speedGame');
+    if (gameToEdit) {
+        appState.editingGame = JSON.parse(JSON.stringify(gameToEdit)); // Deep copy
+        appState.newSpeedGameWordInput = gameToEdit.words.join('\n'); // Populate textarea
+        appState.currentCategoryForGameCreation = 'speedGame';
+        renderGameCreationPage();
+    } else {
+        showAlert("해당 스피드게임을 찾을 수 없습니다.");
+    }
+}
+
+// 스피드게임 삭제
+async function deleteSpeedGame(gameId) {
+    const confirmed = await showConfirm("정말로 이 스피드게임을 삭제하시겠습니까? 모든 단어가 사라집니다.");
+    if (confirmed) {
+        appState.games = appState.games.filter(game => game.id !== gameId);
+        saveGamesToLocalStorage();
+        showAlert("스피드게임이 성공적으로 삭제되었습니다.");
+        renderGameCreationPage();
+    }
+}
+
 // 점수 기록 화면 렌더링
 function renderScoreScreen() {
     if (appState.teams.length === 0) {
@@ -498,12 +961,30 @@ function renderScoreScreen() {
         </div>
     `).join('');
 
+    let gameListForPlayHtml = '';
+    if (appState.games.length > 0) {
+        gameListForPlayHtml += `<h4 class="text-lg font-semibold text-gray-700 mb-4">실행할 게임 선택</h4>`;
+        appState.games.forEach(game => {
+            gameListForPlayHtml += `
+                <button class="btn btn-primary w-full mb-2" onclick="startGamePlay('${game.id}', '${game.category}')">
+                    ${game.category === 'oxQuiz' ? 'OX 퀴즈' : '스피드게임'} 시작: ${game.name}
+                </button>
+            `;
+        });
+    } else {
+        gameListForPlayHtml = `<p class="text-gray-600 mb-4">만들어진 게임이 없습니다. '게임 만들기'에서 게임을 추가해주세요!</p>`;
+    }
+
     appDiv.innerHTML = `
-        <h2 class="text-2xl font-bold text-gray-800 mb-6">점수 기록</h2>
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">점수 현황</h2>
         <div class="mb-8">
             ${teamsHtml}
         </div>
-        <button id="showResultsBtn" class="btn btn-primary w-full mb-4">결과 확인</button>
+        <div class="random-selection-section mt-8">
+            <h3>게임 실행</h3>
+            ${gameListForPlayHtml}
+        </div>
+        <button id="showResultsBtn" class="btn btn-primary w-full mt-8 mb-4">결과 확인</button>
     `;
 
     document.querySelectorAll('.score-btn').forEach(button => {
@@ -518,6 +999,220 @@ function renderScoreScreen() {
         appState.currentPage = 'results';
         renderApp();
     });
+}
+
+// 팀 선택 모달 표시 함수
+function showTeamSelectionModal(callback) {
+    if (appState.teams.length === 0) {
+        showAlert("먼저 팀 배정 화면에서 팀을 배정해주세요.");
+        return;
+    }
+
+    modalMessage.innerText = "어떤 팀이 이 게임을 진행할까요?";
+    modalButtons.innerHTML = appState.teams.map(team => `
+        <button class="modal-btn btn-primary" data-team-name="${team.name}">${team.name}</button>
+    `).join('');
+    customModal.classList.add('show');
+
+    document.querySelectorAll('#modalButtons .modal-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const teamName = e.target.dataset.teamName;
+            hideModal();
+            callback(teamName);
+        });
+    });
+}
+
+// 게임 플레이 시작 함수
+function startGamePlay(gameId, gameCategory) {
+    // First, ask which team is playing
+    showTeamSelectionModal((selectedTeamName) => {
+        const selectedTeam = appState.teams.find(team => team.name === selectedTeamName);
+        if (!selectedTeam) {
+            showAlert("선택된 팀을 찾을 수 없습니다.");
+            return;
+        }
+
+        appState.currentPlayingTeamId = selectedTeam.name; // Store team name as ID
+        appState.selectedGameToPlayId = gameId;
+        appState.currentPlayingGameCategory = gameCategory;
+
+        if (gameCategory === 'oxQuiz') {
+            appState.currentOxQuizQuestionIndex = 0;
+            appState.oxQuizAnswerResult = null; // Reset answer result
+            appState.currentOxQuizSessionScore = 0; // Reset session score for new quiz
+            appState.currentPage = 'oxQuizPlay';
+        } else if (gameCategory === 'speedGame') {
+            appState.currentSpeedGameWordIndex = 0;
+            appState.currentPage = 'speedGamePlay';
+        }
+        renderApp();
+    });
+}
+
+// OX 퀴즈 플레이 화면 렌더링
+function renderOxQuizPlayScreen() {
+    const selectedGame = appState.games.find(game => game.id === appState.selectedGameToPlayId && game.category === 'oxQuiz');
+
+    if (!selectedGame || selectedGame.questions.length === 0) {
+        showAlert("선택된 OX 퀴즈가 없거나 문제가 없습니다.");
+        appState.currentPage = 'score';
+        renderApp();
+        return;
+    }
+
+    const currentQuestion = selectedGame.questions[appState.currentOxQuizQuestionIndex];
+    const totalQuestions = selectedGame.questions.length;
+
+    let answerFeedbackHtml = '';
+    if (appState.oxQuizAnswerResult === 'correct') {
+        answerFeedbackHtml = `<div class="game-answer-display correct">정답입니다!</div>`;
+    } else if (appState.oxQuizAnswerResult === 'incorrect') {
+        answerFeedbackHtml = `<div class="game-answer-display incorrect">오답입니다! 정답은 ${currentQuestion.a} 입니다.</div>`;
+    }
+
+    appDiv.innerHTML = `
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">${selectedGame.name} (OX 퀴즈)</h2>
+        <div class="game-play-section">
+            <h3>문제 ${appState.currentOxQuizQuestionIndex + 1} / ${totalQuestions}</h3>
+            <div class="game-question-display">
+                ${currentQuestion.q}
+            </div>
+            ${answerFeedbackHtml}
+            <div class="ox-choice-buttons ${appState.oxQuizAnswerResult ? 'hidden' : ''}">
+                <button id="chooseOBtn" class="btn btn-primary">O</button>
+                <button id="chooseXBtn" class="btn btn-primary">X</button>
+            </div>
+            <div class="game-navigation-buttons ${appState.oxQuizAnswerResult ? '' : 'hidden'}">
+                <button id="nextOxQuizQuestionBtn" class="btn btn-primary" ${appState.currentOxQuizQuestionIndex === totalQuestions - 1 ? '' : ''}>${appState.currentOxQuizQuestionIndex === totalQuestions - 1 ? '퀴즈 종료' : '다음 문제'}</button>
+            </div>
+        </div>
+        <button id="backToScoreScreenBtn" class="btn btn-secondary w-full mt-8">점수 현황으로 돌아가기</button>
+    `;
+
+    // Add event listeners for O/X choice buttons
+    if (!appState.oxQuizAnswerResult) { // Only add if not yet answered
+        document.getElementById('chooseOBtn').addEventListener('click', () => checkOxQuizAnswer('O', currentQuestion.a));
+        document.getElementById('chooseXBtn').addEventListener('click', () => checkOxQuizAnswer('X', currentQuestion.a));
+    }
+
+    // Add event listener for Next Question button
+    document.getElementById('nextOxQuizQuestionBtn').addEventListener('click', async () => { // Make it async
+        const totalQuestions = selectedGame.questions.length;
+        if (appState.currentOxQuizQuestionIndex < totalQuestions - 1) {
+            appState.currentOxQuizQuestionIndex++;
+            appState.oxQuizAnswerResult = null; // Reset answer result for next question
+            renderOxQuizPlayScreen();
+        } else {
+            // Last question, quiz ends
+            await showAlert(`OX 퀴즈가 종료되었습니다! 총 ${appState.currentOxQuizSessionScore}점을 획득했습니다.`); // Await the alert
+
+            // Add the session score to the current playing team's score
+            const teamToUpdate = appState.teams.find(team => team.name === appState.currentPlayingTeamId);
+            if (teamToUpdate) {
+                teamToUpdate.score += appState.currentOxQuizSessionScore;
+            }
+
+            appState.currentPlayingTeamId = null; // Reset playing team
+            appState.selectedGameToPlayId = null; // Reset playing game
+            appState.currentPlayingGameCategory = null; // Reset playing game category
+            appState.currentOxQuizSessionScore = 0; // Reset session score
+            appState.currentPage = 'score'; // Go back to score screen
+            renderApp();
+        }
+    });
+
+    document.getElementById('backToScoreScreenBtn').addEventListener('click', () => {
+        appState.currentPage = 'score';
+        renderApp();
+    });
+}
+
+// OX 퀴즈 정답 확인 함수
+function checkOxQuizAnswer(selectedAnswer, correctAnswer) {
+    const selectedGame = appState.games.find(game => game.id === appState.selectedGameToPlayId);
+    if (!selectedGame) return; // Should not happen if flow is correct
+
+    if (selectedAnswer === correctAnswer) {
+        appState.oxQuizAnswerResult = 'correct';
+        // Increment score for the current playing team in the session
+        appState.currentOxQuizSessionScore++;
+    } else {
+        appState.oxQuizAnswerResult = 'incorrect';
+    }
+    renderOxQuizPlayScreen(); // Re-render to show feedback and next button
+}
+
+
+// 스피드게임 플레이 화면 렌더링
+function renderSpeedGamePlayScreen() {
+    const selectedGame = appState.games.find(game => game.id === appState.selectedGameToPlayId && game.category === 'speedGame');
+
+    if (!selectedGame || selectedGame.words.length === 0) {
+        showAlert("선택된 스피드게임이 없거나 단어가 없습니다.");
+        appState.currentPage = 'score';
+        renderApp();
+        return;
+    }
+
+    const currentWord = selectedGame.words[appState.currentSpeedGameWordIndex];
+    const totalWords = selectedGame.words.length;
+
+    appDiv.innerHTML = `
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">${selectedGame.name} (스피드게임)</h2>
+        <div class="game-play-section">
+            <h3>단어 ${appState.currentSpeedGameWordIndex + 1} / ${totalWords}</h3>
+            <div class="game-word-display">
+                ${currentWord}
+            </div>
+            <div class="game-navigation-buttons">
+                <button id="correctSpeedGameBtn" class="btn btn-primary">정답</button>
+                <button id="passSpeedGameBtn" class="btn btn-secondary">패스</button>
+            </div>
+        </div>
+        <button id="backToScoreScreenBtn" class="btn btn-secondary w-full mt-8">점수 기록으로 돌아가기</button>
+    `;
+
+    // Add event listeners for Correct and Pass buttons
+    document.getElementById('correctSpeedGameBtn').addEventListener('click', () => handleSpeedGameAction(true, selectedGame, totalWords));
+    document.getElementById('passSpeedGameBtn').addEventListener('click', () => handleSpeedGameAction(false, selectedGame, totalWords));
+
+    document.getElementById('backToScoreScreenBtn').addEventListener('click', () => {
+        appState.currentPage = 'score';
+        renderApp();
+    });
+}
+
+// 스피드게임 액션 처리 (정답 또는 패스)
+async function handleSpeedGameAction(isCorrect, selectedGame, totalWords) {
+    if (isCorrect) {
+        appState.currentSpeedGameSessionScore++;
+    }
+
+    if (appState.currentSpeedGameWordIndex < totalWords - 1) {
+        appState.currentSpeedGameWordIndex++;
+        renderSpeedGamePlayScreen();
+    } else {
+        // Last word, game ends
+        await showAlert(`스피드게임이 종료되었습니다! 총 ${appState.currentSpeedGameSessionScore}점을 획득했습니다.`);
+
+        // Add the session score to the current playing team's score
+        const teamToUpdate = appState.teams.find(team => team.name === appState.currentPlayingTeamId);
+        if (teamToUpdate) {
+            // Ensure score is a number before adding
+            if (typeof teamToUpdate.score !== 'number') {
+                teamToUpdate.score = 0; // Initialize if it's not a number
+            }
+            teamToUpdate.score += appState.currentSpeedGameSessionScore;
+        }
+
+        appState.currentPlayingTeamId = null;
+        appState.selectedGameToPlayId = null;
+        appState.currentPlayingGameCategory = null;
+        appState.currentSpeedGameSessionScore = 0; // Reset session score
+        appState.currentPage = 'score';
+        renderApp();
+    }
 }
 
 // 결과 화면 렌더링
@@ -564,7 +1259,7 @@ function renderResultsScreen() {
         <div class="mb-8">
             ${resultsHtml}
         </div>
-        <button id="backToScoreBtn" class="btn btn-secondary w-full mb-4">점수 기록으로 돌아가기</button>
+        <button id="backToScoreBtn" class="btn btn-secondary w-full mb-4">점수 현황으로 돌아가기</button>
         <button id="startNewGameBtn" class="btn btn-primary w-full">게임 종료</button>
     `;
 
@@ -721,8 +1416,17 @@ function renderApp() {
         case 'setup':
             renderSetupScreen();
             break;
+        case 'gameCreationPage':
+            renderGameCreationPage();
+            break;              
         case 'score':
             renderScoreScreen();
+            break;
+        case 'oxQuizPlay':
+            renderOxQuizPlayScreen();
+            break;
+        case 'speedGamePlay':
+            renderSpeedGamePlayScreen();
             break;
         case 'results':
             renderResultsScreen();
