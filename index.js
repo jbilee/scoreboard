@@ -225,6 +225,19 @@ function renderAssignmentMethodOptions() {
     const container = document.getElementById('assignmentMethodOptionsContainer');
     if (!container) return; // 컨테이너가 존재하지 않으면 함수 종료
 
+    // Ensure appState.teams array is correctly sized for the current numTeams
+    // Preserve existing team data if possible, add new empty teams if numTeams increased
+    const newTeamsArray = [];
+    for (let i = 0; i < appState.numTeams; i++) {
+        if (appState.teams[i]) {
+            newTeamsArray.push(appState.teams[i]);
+        } else {
+            // Create a new default team if expanding the number of teams
+            newTeamsArray.push({ name: `팀 ${String.fromCharCode(65 + i)}`, score: 0, members: [] });
+        }
+    }
+    appState.teams = newTeamsArray; // Update appState.teams
+
     container.innerHTML = ''; // 이전 내용 모두 초기화
 
     let htmlContent = `
@@ -267,19 +280,27 @@ function renderTeamNameInputs() {
     container.innerHTML = ''; // 기존 입력 필드 초기화
 
     for (let i = 0; i < appState.numTeams; i++) {
-        // 기존 팀 이름이 있다면 가져오고, 없으면 기본 이름 사용
-        const defaultTeamName = `팀 ${String.fromCharCode(65 + i)}`;
-        const currentTeamName = appState.teams[i] ? appState.teams[i].name : defaultTeamName;
+        // Ensure appState.teams[i] exists and has a name property
+        // If appState.teams[i] doesn't exist (e.g., increased numTeams), initialize it
+        if (!appState.teams[i]) {
+            appState.teams[i] = { name: `팀 ${String.fromCharCode(65 + i)}`, score: 0, members: [] };
+        }
+        const teamName = appState.teams[i].name || `팀 ${String.fromCharCode(65 + i)}`;
 
         const inputHtml = `
             <div class="mb-3">
                 <label for="teamName-${i}" class="block text-gray-700 text-sm font-bold mb-1">
                     팀 ${String.fromCharCode(65 + i)} 이름
                 </label>
-                <input type="text" id="teamName-${i}" class="input-field" placeholder="예: ${defaultTeamName}" value="${currentTeamName}">
+                <input type="text" id="teamName-${i}" class="input-field" placeholder="예: ${teamName}" value="${teamName}">
             </div>
         `;
         container.insertAdjacentHTML('beforeend', inputHtml);
+
+        // Add event listener to update appState.teams immediately on input
+        document.getElementById(`teamName-${i}`).addEventListener('input', (e) => {
+            appState.teams[i].name = e.target.value.trim();
+        });
     }
 }
 
